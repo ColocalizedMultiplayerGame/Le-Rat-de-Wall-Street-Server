@@ -17,6 +17,14 @@ const io = new Server(server, {
   },
 });
 
+
+app.use((req, res, next) => {
+  res.header("Access-Control-Allow-Origin", "https://alexandre94460vlt.github.io");
+  res.header("Access-Control-Allow-Methods", "GET, POST");
+  res.header("Access-Control-Allow-Headers", "Content-Type");
+  next();
+});
+
 const publicPath = path.join(__dirname, "public");
 const lobbyImagesPath = path.join(publicPath, "assets", "lobby");
 
