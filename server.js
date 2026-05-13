@@ -96,16 +96,34 @@ io.on("connection", (socket) => {
     }
   });
 
-  // ÉCOUTEURS DES ACTIONS DE JEU
-  socket.on("player:buy", (data) => {
-    console.log(`Achat par ${socket.id}:`, data);
-    gameLoop.handleBuy(socket.id, data);
-  });
+// --- DANS io.on("connection", (socket) => { ... }) de votre SERVER.JS ---
 
-  socket.on("player:sell", (data) => {
-    console.log(`Vente par ${socket.id}:`, data);
-    gameLoop.handleSell(socket.id, data);
-  });
+socket.on("player:buy", (data) => {
+  try {
+    // On extrait les infos envoyées par la manette
+    const { actionName, quantity } = data;
+    
+    // On appelle la fonction telle qu'elle est nommée dans GameLoop.js
+    gameLoop.buyAction(socket.id, actionName, quantity);
+    
+    console.log(`Achat réussi pour ${socket.id} : ${quantity} ${actionName}`);
+  } catch (error) {
+    console.error("Erreur lors de l'achat :", error);
+  }
+});
+
+socket.on("player:sell", (data) => {
+  try {
+    const { actionName, quantity } = data;
+    
+    // On appelle la fonction telle qu'elle est nommée dans GameLoop.js
+    gameLoop.sellAction(socket.id, actionName, quantity);
+    
+    console.log(`Vente réussie pour ${socket.id} : ${quantity} ${actionName}`);
+  } catch (error) {
+    console.error("Erreur lors de la vente :", error);
+  }
+});
 
   // COMMANDES ADMIN
   // COMMANDES ADMIN
