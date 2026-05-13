@@ -11,6 +11,7 @@ const app = express();
 const server = http.createServer(app);
 
 // --- CONFIGURATION CORS GLOBALE ---
+// Assure-toi que cette URL correspond exactement à ton lien GitHub Pages (sans slash à la fin)
 const ALLOWED_ORIGIN = "https://alexandre94460vlt.github.io";
 
 const io = new Server(server, {
@@ -21,6 +22,7 @@ const io = new Server(server, {
   },
 });
 
+// Middleware pour les headers CORS (pour les requêtes API classiques)
 app.use((req, res, next) => {
   res.header("Access-Control-Allow-Origin", ALLOWED_ORIGIN);
   res.header("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
@@ -49,7 +51,7 @@ const actionTemplates = [
 ];
 
 function createRandomActions() {
-  const count = 4; // Ajuste selon tes besoins
+  const count = 4; 
   return [...actionTemplates]
     .sort(() => 0.5 - Math.random())
     .slice(0, count)
@@ -58,7 +60,7 @@ function createRandomActions() {
 
 const gameLoop = new GameLoop(createRandomActions(), io, EXPECTED_PLAYERS);
 
-// --- ROUTES ---
+// --- ROUTES API ---
 app.get("/api/lobby-backgrounds", (req, res) => {
   fs.readdir(lobbyImagesPath, (err, files) => {
     if (err) return res.json([]);
@@ -70,18 +72,65 @@ app.get("/api/lobby-backgrounds", (req, res) => {
   });
 });
 
-// --- SOCKETS ---
+// --- GESTION DES SOCKETS (COMMUNICATION TEMPS RÉEL) ---
 io.on("connection", (socket) => {
-  console.log("Connecté:", socket.id);
+  console.log("Nouvelle connexion établie :", socket.id);
+  
+  // Initialisation du joueur dans la logique du jeu
   gameLoop.createPlayer(socket.id);
 
+  // ÉCOUTEUR DU PSEUDO (C'est ce qui manquait !)
+  socket.on("player:join", (name) => {
+    console.log(`Le joueur ${socket.id} a choisi le pseudo : ${name}`);
+    
+    // On récupère l'instance du joueur pour mettre à jour son nom
+    const player = gameLoop.players[socket.id];
+    if (player) {
+      player.name = name;
+      
+      // On confirme au client que c'est bon et on lui envoie l'état du jeu
+      socket.emit("player:joined", {
+        isGameOpen: gameLoop.isGameOpen,
+        name: player.name
+      });
+    }
+  });
+
+  // ÉCOUTEURS DES ACTIONS DE JEU
+  socket.on("player:buy", (data) => {
+    console.log(`Achat par ${socket.id}:`, data);
+    gameLoop.handleBuy(socket.id, data);
+  });
+
+  socket.on("player:sell", (data) => {
+    console.log(`Vente par ${socket.id}:`, data);
+    gameLoop.handleSell(socket.id, data);
+  });
+
+  // COMMANDES ADMIN
   socket.on("admin:open-game", () => {
+    console.log("Admin : Ouverture du marché");
     if (!gameLoop.isGameOpen) gameLoop.reset(createRandomActions());
     gameLoop.start();
   });
 
-  socket.on("admin:close-game", () => gameLoop.stop());
-  socket.on("disconnect", () => gameLoop.removePlayer(socket.id));
+  socket.on("admin:close-game", () => {
+    console.log("Admin : Fermeture du marché");
+    gameLoop.stop();
+  });
+
+  // DÉCONNEXION
+  socket.on("disconnect", () => {
+    console.log("Déconnexion :", socket.id);
+    gameLoop.removePlayer(socket.id);
+  });
 });
 
-server.listen(PORT, "0.0.0.0", () => console.log(`Serveur sur port ${PORT}`));
+// Lancement du serveur
+server.listen(PORT, "0.0.0.0", () => {
+  console.log(`=========================================`);
+  console.log(`Serveur "Le Rat de Wall Street" démarré !`);
+  console.log(`Port : ${PORT}`);
+  console.log(`Origine autorisée : ${ALLOWED_ORIGIN}`);
+  console.log(`=========================================`);
+});
