@@ -99,18 +99,27 @@ io.on("connection", (socket) => {
 // --- DANS io.on("connection", (socket) => { ... }) de votre SERVER.JS ---
 
 socket.on("player:buy", (data) => {
-    console.log("Données reçues pour achat :", data); // Regarde tes logs Render !
-    
-    // On extrait les données. 
-    // ATTENTION : vérifie si ta manette utilise 'actionName' ou 'name'
-    const actionId = data.actionName || data.name; 
-    const qty = parseInt(data.quantity || data.qty);
+    const player = gameLoop.players[socket.id];
+    console.log(`--- Tentative d'achat ---`);
+    console.log(`Joueur: ${player ? player.name : 'Inconnu'}`);
+    console.log(`Data reçue:`, data);
 
-    if (actionId && qty) {
-        gameLoop.buyAction(socket.id, actionId, qty);
-    } else {
-        console.error("Format de données invalide :", data);
-    }
+    const actionId = data.actionName || data.name;
+    const qty = parseInt(data.quantity);
+
+    if (!player) return console.log("❌ Joueur introuvable");
+    if (!player.isActive) return console.log("❌ Joueur non actif");
+    
+    // Test manuel de l'action
+    const action = gameLoop.actions.find(a => a.name === actionId);
+    if (!action) return console.log(`❌ Action "${actionId}" introuvable sur le serveur`);
+    
+    const cost = action.price * qty;
+    if (player.cash < cost) return console.log(`❌ Pas assez de cash (${player.cash}€ < ${cost}€)`);
+
+    // Si on arrive ici, on lance la fonction
+    gameLoop.buyAction(socket.id, actionId, qty);
+    console.log("✅ Fonction buyAction exécutée");
 });
 
 socket.on("player:sell", (data) => {
