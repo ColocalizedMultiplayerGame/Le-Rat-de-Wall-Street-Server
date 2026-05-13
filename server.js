@@ -99,17 +99,18 @@ io.on("connection", (socket) => {
 // --- DANS io.on("connection", (socket) => { ... }) de votre SERVER.JS ---
 
 socket.on("player:buy", (data) => {
-  try {
-    // On extrait les infos envoyées par la manette
-    const { actionName, quantity } = data;
+    console.log("Données reçues pour achat :", data); // Regarde tes logs Render !
     
-    // On appelle la fonction telle qu'elle est nommée dans GameLoop.js
-    gameLoop.buyAction(socket.id, actionName, quantity);
-    
-    console.log(`Achat réussi pour ${socket.id} : ${quantity} ${actionName}`);
-  } catch (error) {
-    console.error("Erreur lors de l'achat :", error);
-  }
+    // On extrait les données. 
+    // ATTENTION : vérifie si ta manette utilise 'actionName' ou 'name'
+    const actionId = data.actionName || data.name; 
+    const qty = parseInt(data.quantity || data.qty);
+
+    if (actionId && qty) {
+        gameLoop.buyAction(socket.id, actionId, qty);
+    } else {
+        console.error("Format de données invalide :", data);
+    }
 });
 
 socket.on("player:sell", (data) => {
