@@ -156,28 +156,44 @@ class GameLoop {
         this.broadcastGameState();
     }
 
-    buyAction(socketId, actionIdentifier, quantity) {
-        const player = this.players[socketId];
-        if (!player || !player.isActive || !this.isGameOpen) return;
-        const action = this.actions.find(a => 
-    a.name.toLowerCase() === actionIdentifier.toLowerCase() || 
-    a.shortName.toLowerCase() === actionIdentifier.toLowerCase()
-);
-        if (!action) return;
+   // DANS GAMELOOP.JS
+buyAction(socketId, actionIdentifier, quantity) {
+    const player = this.players[socketId];
+    
+    // LOG 1 : Est-ce que le joueur existe et est actif ?
+    if (!player) { console.log("LB: Joueur inexistant"); return; }
+    if (!player.isActive) { console.log(`LB: Joueur ${player.name} non actif`); return; }
 
-        const cost = action.price * quantity;
-        if (player.cash < cost) return;
+    // LOG 2 : Est-ce que le serveur trouve l'action ?
+    const action = this.actions.find(a => 
+        a.name.toLowerCase() === actionIdentifier.toLowerCase() || 
+        a.shortName.toLowerCase() === actionIdentifier.toLowerCase()
+    );
 
-        player.cash -= cost;
-        player.portfolio[action.name].quantity += quantity;
-        player.portfolio[action.name].invested += cost;
-
-        this.tradeCounts[socketId]++;
-
-        // CORRECTION : On met à jour SEULEMENT le joueur qui vient d'acheter
-        // Le reste du monde verra la mise à jour à la prochaine seconde du Tick()
-        this.emitPlayerState(socketId);
+    if (!action) {
+        console.log(`LB: Action "${actionIdentifier}" introuvable dans le marché !`);
+        console.log("Actions dispo :", this.actions.map(a => a.name));
+        return;
     }
+
+    const cost = action.price * quantity;
+    
+    // LOG 3 : Problème d'argent ?
+    if (player.cash < cost) {
+        console.log(`LB: ${player.name} n'a pas assez de cash (${player.cash} < ${cost})`);
+        return;
+    }
+
+    // SI ON ARRIVE ICI, ÇA DOIT MARCHER
+    player.cash -= cost;
+    player.portfolio[action.name].quantity += quantity;
+    player.portfolio[action.name].invested += cost;
+    this.tradeCounts[socketId]++;
+
+    console.log(`✅ ACHAT RÉUSSI : ${player.name} a acheté ${quantity} ${action.name}`);
+    
+    this.emitPlayerState(socketId);
+}
 
     sellAction(socketId, actionIdentifier, quantity) {
         const player = this.players[socketId];
