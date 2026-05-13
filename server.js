@@ -73,68 +73,66 @@ app.get("/api/lobby-backgrounds", (req, res) => {
 });
 
 // --- GESTION DES SOCKETS (COMMUNICATION TEMPS RÉEL) ---
+// --- GESTION DES SOCKETS DANS SERVER.JS ---
 io.on("connection", (socket) => {
-  console.log("Nouvelle connexion établie :", socket.id);
-  
-  // Initialisation du joueur dans la logique du jeu
+  console.log(`🔌 Nouveau socket connecté : ${socket.id}`);
   gameLoop.createPlayer(socket.id);
 
-  // ÉCOUTEUR DU PSEUDO (C'est ce qui manquait !)
+  // LOG DU PSEUDO
   socket.on("player:join", (name) => {
-    console.log(`Le joueur ${socket.id} a choisi le pseudo : ${name}`);
-    
-    // On récupère l'instance du joueur pour mettre à jour son nom
+    console.log(`📝 Tentative de join : ID=${socket.id}, Pseudo=${name}`);
     const player = gameLoop.players[socket.id];
     if (player) {
       player.name = name;
-      
-      // On confirme au client que c'est bon et on lui envoie l'état du jeu
-      socket.emit("player:joined", {
-        isGameOpen: gameLoop.isGameOpen,
-        name: player.name
-      });
+      player.hasJoined = true;
+      player.isActive = gameLoop.isGameOpen;
+      socket.emit("player:joined", { isGameOpen: gameLoop.isGameOpen, name: player.name });
+      console.log(`✅ Joueur enregistré : ${player.name}`);
+    } else {
+      console.log(`❌ Erreur : Joueur non trouvé dans la liste pour l'ID ${socket.id}`);
     }
   });
 
-// --- DANS io.on("connection", (socket) => { ... }) de votre SERVER.JS ---
+  // LOG D'ACHAT (LE POINT CRITIQUE)
+  socket.on("player:buy", (data) => {
+    console.log(`🛒 REÇU player:buy de ${socket.id}`);
+    console.log(`📦 Contenu du message :`, data);
 
-socket.on("player:buy", (data) => {
-    const player = gameLoop.players[socket.id];
-    console.log(`--- Tentative d'achat ---`);
-    console.log(`Joueur: ${player ? player.name : 'Inconnu'}`);
-    console.log(`Data reçue:`, data);
+    try {
+      const actionIdentifier = data.actionName || data.name;
+      const quantity = parseInt(data.quantity);
 
-    const actionId = data.actionName || data.name;
-    const qty = parseInt(data.quantity);
+      if (!actionIdentifier || isNaN(quantity)) {
+        console.log(`❌ Données invalides : Nom=${actionIdentifier}, Qté=${quantity}`);
+        return;
+      }
 
-    if (!player) return console.log("❌ Joueur introuvable");
-    if (!player.isActive) return console.log("❌ Joueur non actif");
-    
-    // Test manuel de l'action
-    const action = gameLoop.actions.find(a => a.name === actionId);
-    if (!action) return console.log(`❌ Action "${actionId}" introuvable sur le serveur`);
-    
-    const cost = action.price * qty;
-    if (player.cash < cost) return console.log(`❌ Pas assez de cash (${player.cash}€ < ${cost}€)`);
+      // On appelle la fonction et on regarde si elle s'exécute
+      console.log(`🚀 Appel de gameLoop.buyAction("${actionIdentifier}", ${quantity})`);
+      gameLoop.buyAction(socket.id, actionIdentifier, quantity);
+      
+    } catch (err) {
+      console.error(`💥 CRASH interne lors de l'achat :`, err);
+    }
+  });
 
-    // Si on arrive ici, on lance la fonction
-    gameLoop.buyAction(socket.id, actionId, qty);
-    console.log("✅ Fonction buyAction exécutée");
+  // LOG DE VENTE
+  socket.on("player:sell", (data) => {
+    console.log(`💰 REÇU player:sell de ${socket.id}`, data);
+    try {
+      const actionIdentifier = data.actionName || data.name;
+      const quantity = parseInt(data.quantity);
+      gameLoop.sellAction(socket.id, actionIdentifier, quantity);
+    } catch (err) {
+      console.error(`💥 CRASH interne lors de la vente :`, err);
+    }
+  });
+
+  socket.on("disconnect", () => {
+    console.log(`🚫 Déconnexion : ${socket.id}`);
+    gameLoop.removePlayer(socket.id);
+  });
 });
-
-socket.on("player:sell", (data) => {
-  try {
-    const { actionName, quantity } = data;
-    
-    // On appelle la fonction telle qu'elle est nommée dans GameLoop.js
-    gameLoop.sellAction(socket.id, actionName, quantity);
-    
-    console.log(`Vente réussie pour ${socket.id} : ${quantity} ${actionName}`);
-  } catch (error) {
-    console.error("Erreur lors de la vente :", error);
-  }
-});
-
   // COMMANDES ADMIN
   // COMMANDES ADMIN
   socket.on("admin:open-game", () => {
