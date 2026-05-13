@@ -108,10 +108,16 @@ io.on("connection", (socket) => {
   });
 
   // COMMANDES ADMIN
+  // COMMANDES ADMIN
   socket.on("admin:open-game", () => {
     console.log("Admin : Ouverture du marché");
     if (!gameLoop.isGameOpen) gameLoop.reset(createRandomActions());
     gameLoop.start();
+
+    // IMPORTANT : On envoie à tout le monde l'ordre de passer sur l'écran "game"
+    io.emit("player:joined", {
+      isGameOpen: true
+    });
   });
 
   socket.on("admin:close-game", () => {
