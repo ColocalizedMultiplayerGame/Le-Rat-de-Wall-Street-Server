@@ -11,7 +11,6 @@ const app = express();
 const server = http.createServer(app);
 
 // --- CONFIGURATION CORS GLOBALE ---
-// Assure-toi que cette URL correspond exactement à ton lien GitHub Pages (sans slash à la fin)
 const ALLOWED_ORIGIN = "https://alexandre94460vlt.github.io";
 
 const io = new Server(server, {
@@ -22,7 +21,7 @@ const io = new Server(server, {
   },
 });
 
-// Middleware pour les headers CORS (pour les requêtes API classiques)
+// Middleware pour les headers CORS
 app.use((req, res, next) => {
   res.header("Access-Control-Allow-Origin", ALLOWED_ORIGIN);
   res.header("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
@@ -72,13 +71,12 @@ app.get("/api/lobby-backgrounds", (req, res) => {
   });
 });
 
-// --- GESTION DES SOCKETS (COMMUNICATION TEMPS RÉEL) ---
-// --- GESTION DES SOCKETS DANS SERVER.JS ---
+// --- GESTION DES SOCKETS ---
 io.on("connection", (socket) => {
   console.log(`🔌 Nouveau socket connecté : ${socket.id}`);
   gameLoop.createPlayer(socket.id);
 
-  // LOG DU PSEUDO
+  // REJOINDRE LA PARTIE (PSEUDO)
   socket.on("player:join", (name) => {
     console.log(`📝 Tentative de join : ID=${socket.id}, Pseudo=${name}`);
     const player = gameLoop.players[socket.id];
@@ -89,36 +87,32 @@ io.on("connection", (socket) => {
       socket.emit("player:joined", { isGameOpen: gameLoop.isGameOpen, name: player.name });
       console.log(`✅ Joueur enregistré : ${player.name}`);
     } else {
-      console.log(`❌ Erreur : Joueur non trouvé dans la liste pour l'ID ${socket.id}`);
+      console.log(`❌ Erreur : Joueur non trouvé pour l'ID ${socket.id}`);
     }
   });
 
-  // LOG D'ACHAT (LE POINT CRITIQUE)
+  // ACHAT D'ACTION
   socket.on("player:buy", (data) => {
-    console.log(`🛒 REÇU player:buy de ${socket.id}`);
-    console.log(`📦 Contenu du message :`, data);
-
+    console.log(`🛒 REÇU player:buy de ${socket.id} | Contenu:`, data);
     try {
       const actionIdentifier = data.actionName || data.name;
       const quantity = parseInt(data.quantity);
 
       if (!actionIdentifier || isNaN(quantity)) {
-        console.log(`❌ Données invalides : Nom=${actionIdentifier}, Qté=${quantity}`);
+        console.log(`❌ Données d'achat invalides.`);
         return;
       }
 
-      // On appelle la fonction et on regarde si elle s'exécute
-      console.log(`🚀 Appel de gameLoop.buyAction("${actionIdentifier}", ${quantity})`);
+      console.log(`🚀 Exécution buyAction("${actionIdentifier}", ${quantity})`);
       gameLoop.buyAction(socket.id, actionIdentifier, quantity);
-      
     } catch (err) {
       console.error(`💥 CRASH interne lors de l'achat :`, err);
     }
   });
 
-  // LOG DE VENTE
+  // VENTE D'ACTION
   socket.on("player:sell", (data) => {
-    console.log(`💰 REÇU player:sell de ${socket.id}`, data);
+    console.log(`💰 REÇU player:sell de ${socket.id} | Contenu:`, data);
     try {
       const actionIdentifier = data.actionName || data.name;
       const quantity = parseInt(data.quantity);
@@ -128,32 +122,23 @@ io.on("connection", (socket) => {
     }
   });
 
-  socket.on("disconnect", () => {
-    console.log(`🚫 Déconnexion : ${socket.id}`);
-    gameLoop.removePlayer(socket.id);
-  });
-});
-  // COMMANDES ADMIN
   // COMMANDES ADMIN
   socket.on("admin:open-game", () => {
-    console.log("Admin : Ouverture du marché");
+    console.log("👑 Admin : Ouverture du marché");
     if (!gameLoop.isGameOpen) gameLoop.reset(createRandomActions());
     gameLoop.start();
-
-    // IMPORTANT : On envoie à tout le monde l'ordre de passer sur l'écran "game"
-    io.emit("player:joined", {
-      isGameOpen: true
-    });
+    // On force le passage sur l'écran "game" pour tout le monde
+    io.emit("player:joined", { isGameOpen: true });
   });
 
   socket.on("admin:close-game", () => {
-    console.log("Admin : Fermeture du marché");
+    console.log("👑 Admin : Fermeture du marché");
     gameLoop.stop();
   });
 
   // DÉCONNEXION
   socket.on("disconnect", () => {
-    console.log("Déconnexion :", socket.id);
+    console.log(`🚫 Déconnexion : ${socket.id}`);
     gameLoop.removePlayer(socket.id);
   });
 });
