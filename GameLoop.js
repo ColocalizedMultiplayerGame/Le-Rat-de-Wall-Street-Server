@@ -159,7 +159,10 @@ class GameLoop {
     buyAction(socketId, actionIdentifier, quantity) {
         const player = this.players[socketId];
         if (!player || !player.isActive || !this.isGameOpen) return;
-        const action = this.actions.find(a => a.name === actionIdentifier || a.shortName === actionIdentifier);
+        const action = this.actions.find(a => 
+    a.name.toLowerCase() === actionIdentifier.toLowerCase() || 
+    a.shortName.toLowerCase() === actionIdentifier.toLowerCase()
+);
         if (!action) return;
 
         const cost = action.price * quantity;
