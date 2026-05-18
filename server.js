@@ -133,7 +133,38 @@ io.on("connection", (socket) => {
 
   socket.on("admin:close-game", () => {
     console.log("👑 Admin : Fermeture du marché");
+    
+    // 1. On arrête la boucle automatique du jeu
     gameLoop.stop();
+    
+    // 2. On passe explicitement le statut du jeu à fermé
+    gameLoop.isGameOpen = false;
+
+    // 3. On génère le classement final (généralement géré par ton tableau de joueurs converti en array trié)
+    const finalLeaderboard = Object.values(gameLoop.players)
+      .filter(p => p.hasJoined)
+      .map(p => ({
+        id: p.id,
+        name: p.name,
+        totalValue: p.totalValue || 0 // Assure-toi que cette propriété existe dans ton GameLoop
+      }))
+      .sort((a, b) => b.totalValue - a.totalValue);
+
+    // 4. On crée le paquet de stats attendu par ton client
+    const finalStats = {
+      leaderboard: finalLeaderboard,
+      totalPlayers: finalLeaderboard.length
+      // Tu peux ajouter ici d'autres stats globales si ton fichier endscreen en a besoin
+    };
+
+    // 5. On envoie le TOUT DERNIER update critique pour déclencher la redirection des clients !
+    io.emit("game:update", {
+      isGameOpen: false,
+      endStats: finalStats,
+      actions: gameLoop.actions || [] // On laisse les actions pour éviter un crash au map() du graphique
+    });
+    
+    console.log("✅ Stats de fin envoyées à tous les joueurs.");
   });
 
   // DÉCONNEXION
