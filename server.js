@@ -50,7 +50,7 @@ const actionTemplates = [
 ];
 
 function createRandomActions() {
-  const count = 4; 
+  const count = 300; 
   return [...actionTemplates]
     .sort(() => 0.5 - Math.random())
     .slice(0, count)
