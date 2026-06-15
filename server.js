@@ -37,7 +37,7 @@ app.use(express.static(publicPath));
 const PORT = process.env.PORT || 3000;
 const EXPECTED_PLAYERS = 26;
 
-// --- DÉFINITION DES ACTIONS ---
+// --- INITIALISATION JEU (TEMPLATES) ---
 const actionTemplates = [
   { name: "Google", shortName: "GGL", initialPrice: 100, sector: "tech" },
   { name: "Microsoft", shortName: "MSFT", initialPrice: 120, sector: "tech" },
@@ -58,31 +58,35 @@ function createRandomActions() {
 }
 
 // --- STRUCTURE DE STOCKAGE MULTI-SESSION ---
-// Contiendra des objets du type : { [roomId]: { gameLoop: GameLoopInstance } }
 const activeRooms = {};
 
-// Fonction utilitaire pour initialiser une room si elle n'existe pas
 function getOrCreateRoom(roomId) {
   if (!roomId) return null;
   const upperRoomId = roomId.toUpperCase();
+  
   if (!activeRooms[upperRoomId]) {
     console.log(`📦 Création de la session de jeu pour la Room : ${upperRoomId}`);
     
-    // On crée une instance unique de GameLoop pour cette room.
-    // L'astuce est de passer un proxy ou un objet restreint à la room pour l'accès IO global de ton GameLoop,
-    // ou d'ajuster l'émission directement ciblée.
-    const loop = new GameLoop(createRandomActions(), io, EXPECTED_PLAYERS);
-    
-    // Modification dynamique pour restreindre les émetteurs automatiques de ton GameLoop à la room
-    const originalEmit = io.emit;
-    // Si ton GameLoop utilise en interne 'this.io.emit', on le redirige vers la room cible
-    loop.io = {
-      emit: (event, data) => io.to(upperRoomId).emit(event, data)
+    // Création d'un wrapper IO sécurisé pour confiner GameLoop à sa propre room
+    const customIoForRoom = {
+      emit: (event, data) => {
+        io.to(upperRoomId).emit(event, data);
+      },
+      to: (room) => io.to(room),
+      in: (room) => io.in(room)
     };
 
-    activeRooms[upperRoomId] = {
-      gameLoop: loop
-    };
+    try {
+      // Injection directe du faux moteur IO pour éviter le crash 502
+      const loop = new GameLoop(createRandomActions(), customIoForRoom, EXPECTED_PLAYERS);
+      
+      activeRooms[upperRoomId] = {
+        gameLoop: loop
+      };
+    } catch (error) {
+      console.error(`💥 ÉCHEC CRITIQUE au démarrage de la Room ${upperRoomId} :`, error);
+      return null;
+    }
   }
   return activeRooms[upperRoomId];
 }
@@ -99,34 +103,34 @@ app.get("/api/lobby-backgrounds", (req, res) => {
   });
 });
 
-// --- GESTION DES SOCKETS VIA ROOMS ---
+// --- GESTION DES SOCKETS ---
 io.on("connection", (socket) => {
   console.log(`🔌 Nouveau socket connecté : ${socket.id}`);
-
-  // Garder en mémoire la room actuelle reliée à ce socket pour le nettoyage
+  
+  // Stockage local de la room associée à ce client pour simplifier la déconnexion
   let currentSocketRoom = null;
 
-  // ADMIN UNIQUE : Joint la room depuis lobby.js
+  // 1. LOBBY ADMIN : Créer / rejoindre la room
   socket.on("admin:join-room", ({ roomId }) => {
     if (!roomId) return;
     const roomKey = roomId.toUpperCase();
     socket.join(roomKey);
     currentSocketRoom = roomKey;
     getOrCreateRoom(roomKey);
-    console.log(`👑 Admin connecté et à l'écoute du salon : ${roomKey}`);
+    console.log(`👑 Admin connecté au salon : ${roomKey}`);
   });
 
-  // SCREEN UNIQUE : Joint la room depuis screen.js
+  // 2. SCREEN : Rejoindre et écouter la room
   socket.on("screen:join-room", ({ roomId }) => {
     if (!roomId) return;
     const roomKey = roomId.toUpperCase();
     socket.join(roomKey);
     currentSocketRoom = roomKey;
     getOrCreateRoom(roomKey);
-    console.log(`📺 Écran de jeu connecté au salon : ${roomKey}`);
+    console.log(`📺 Écran principal connecté au salon : ${roomKey}`);
   });
 
-  // JOUEUR MANETTE : Joint la room depuis player.js
+  // 3. JOUER/MANETTE : Rejoindre la room avec son pseudo
   socket.on("player:join-room", ({ roomId, playerName }) => {
     if (!roomId || !playerName) return;
     const roomKey = roomId.toUpperCase();
@@ -135,11 +139,11 @@ io.on("connection", (socket) => {
     currentSocketRoom = roomKey;
     
     const room = getOrCreateRoom(roomKey);
-    const gl = room.gameLoop;
+    if (!room) return;
 
-    // On crée le joueur dans le GameLoop de ce salon spécifique
+    const gl = room.gameLoop;
     gl.createPlayer(socket.id);
-    
+
     const player = gl.players[socket.id];
     if (player) {
       player.name = playerName;
@@ -147,77 +151,82 @@ io.on("connection", (socket) => {
       player.isActive = gl.isGameOpen;
       
       socket.emit("player:joined", { isGameOpen: gl.isGameOpen, name: player.name });
-      console.log(`✅ Joueur enregistré [${playerName}] dans le salon [${roomKey}]`);
+      console.log(`✅ Joueur enregistré : ${player.name} dans la Room ${roomKey}`);
     }
   });
 
-  // ACHAT D'ACTION
+  // 4. ACHAT D'ACTION
   socket.on("player:buy", (data) => {
     if (!currentSocketRoom || !activeRooms[currentSocketRoom]) return;
     const gl = activeRooms[currentSocketRoom].gameLoop;
 
+    console.log(`🛒 REÇU player:buy de ${socket.id} dans Room ${currentSocketRoom}`);
     try {
       const actionIdentifier = data.actionName || data.name;
       const quantity = parseInt(data.quantity);
 
-      if (!actionIdentifier || isNaN(quantity)) return;
+      if (!actionIdentifier || isNaN(quantity)) {
+        console.log(`❌ Données d'achat invalides.`);
+        return;
+      }
+
       gl.buyAction(socket.id, actionIdentifier, quantity);
     } catch (err) {
-      console.error(`💥 Erreur achat Room ${currentSocketRoom}:`, err);
+      console.error(`💥 CRASH interne lors de l'achat :`, err);
     }
   });
 
-  // VENTE D'ACTION
+  // 5. VENTE D'ACTION
   socket.on("player:sell", (data) => {
     if (!currentSocketRoom || !activeRooms[currentSocketRoom]) return;
     const gl = activeRooms[currentSocketRoom].gameLoop;
 
+    console.log(`💰 REÇU player:sell de ${socket.id} dans Room ${currentSocketRoom}`);
     try {
       const actionIdentifier = data.actionName || data.name;
       const quantity = parseInt(data.quantity);
       gl.sellAction(socket.id, actionIdentifier, quantity);
     } catch (err) {
-      console.error(`💥 Erreur vente Room ${currentSocketRoom}:`, err);
+      console.error(`💥 CRASH interne lors de la vente :`, err);
     }
   });
 
-  // COMMANDES ADMIN - OUVERTURE
+  // 6. COMMANDES ADMIN - OUVERTURE
   socket.on("admin:open-game", (data) => {
-    // Récupération de l'ID via le paramètre ou l'état du socket
-    const rId = (data && data.roomId) ? data.roomId : currentSocketRoom;
-    if (!rId || !activeRooms[rId.toUpperCase()]) return;
+    const targetRoom = (data && data.roomId) ? data.roomId : currentSocketRoom;
+    if (!targetRoom || !activeRooms[targetRoom.toUpperCase()]) return;
     
-    const roomKey = rId.toUpperCase();
+    const roomKey = targetRoom.toUpperCase();
     const gl = activeRooms[roomKey].gameLoop;
 
-    console.log(`👑 Admin : Ouverture du marché pour le salon ${roomKey}`);
+    console.log(`👑 Admin : Ouverture du marché pour la Room ${roomKey}`);
     if (!gl.isGameOpen) gl.reset(createRandomActions());
     gl.start();
     
-    // On force le passage sur l'écran "game" uniquement pour les membres de ce salon
+    // Forcer le passage sur l'écran de jeu uniquement pour cette room
     io.to(roomKey).emit("player:joined", { isGameOpen: true });
   });
 
-  // COMMANDES ADMIN - FERMETURE
+  // 7. COMMANDES ADMIN - FERMETURE
   socket.on("admin:close-game", (data) => {
-    const rId = (data && data.roomId) ? data.roomId : currentSocketRoom;
-    if (!rId || !activeRooms[rId.toUpperCase()]) return;
+    const targetRoom = (data && data.roomId) ? data.roomId : currentSocketRoom;
+    if (!targetRoom || !activeRooms[targetRoom.toUpperCase()]) return;
     
-    const roomKey = rId.toUpperCase();
+    const roomKey = targetRoom.toUpperCase();
     const gl = activeRooms[roomKey].gameLoop;
 
-    console.log(`👑 Admin : Fermeture du marché pour le salon ${roomKey}`);
+    console.log(`👑 Admin : Fermeture du marché pour la Room ${roomKey}`);
     
     gl.stop();
     gl.isGameOpen = false;
 
-    // Génération du classement final propre à cette session
+    // Classement final spécifique à cette room
     const finalLeaderboard = Object.values(gl.players)
       .filter(p => p.hasJoined)
       .map(p => ({
         id: p.id,
         name: p.name,
-        totalValue: p.totalValue || 0 
+        totalValue: p.totalValue || 0
       }))
       .sort((a, b) => b.totalValue - a.totalValue);
 
@@ -226,26 +235,27 @@ io.on("connection", (socket) => {
       totalPlayers: finalLeaderboard.length
     };
 
-    // Notification exclusive des clients de cette room
     io.to(roomKey).emit("game:update", {
       isGameOpen: false,
       endStats: finalStats,
       actions: gl.actions || []
     });
+    
+    console.log(`✅ Stats de fin envoyées à la Room ${roomKey}.`);
   });
 
-  // DÉCONNEXION AUTOMATIQUE ET SÉCURISÉE
+  // 8. DÉCONNEXION
   socket.on("disconnect", () => {
     if (currentSocketRoom && activeRooms[currentSocketRoom]) {
       const gl = activeRooms[currentSocketRoom].gameLoop;
-      console.log(`🚫 Déconnexion de ${socket.id} du salon ${currentSocketRoom}`);
+      console.log(`🚫 Déconnexion : ${socket.id} de la Room ${currentSocketRoom}`);
       gl.removePlayer(socket.id);
 
-      // Optionnel : Si le salon est totalement vide, on peut le supprimer de la mémoire
-      const remainingPlayers = Object.keys(gl.players).length;
-      if (remainingPlayers === 0 && !gl.isGameOpen) {
-         console.log(`🗑️ Salon ${currentSocketRoom} inactif et vide. Nettoyage de la mémoire.`);
-         delete activeRooms[currentSocketRoom];
+      // Si la room devient complètement vide, on nettoie la mémoire RAM
+      const totalRemaining = Object.keys(gl.players).length;
+      if (totalRemaining === 0 && !gl.isGameOpen) {
+        console.log(`🗑️ Nettoyage de la Room vide : ${currentSocketRoom}`);
+        delete activeRooms[currentSocketRoom];
       }
     }
   });
