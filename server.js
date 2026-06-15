@@ -77,7 +77,7 @@ function getOrCreateRoom(roomId) {
     };
 
     try {
-      // Injection directe du faux moteur IO pour éviter le crash 502
+      // Injection directe du faux moteur IO pour éviters les conflits au démarrage
       const loop = new GameLoop(createRandomActions(), customIoForRoom, EXPECTED_PLAYERS);
       
       activeRooms[upperRoomId] = {
@@ -130,7 +130,7 @@ io.on("connection", (socket) => {
     console.log(`📺 Écran principal connecté au salon : ${roomKey}`);
   });
 
-// 3. JOUER/MANETTE : Rejoindre la room avec son pseudo
+  // 3. JOUER/MANETTE : Rejoindre la room avec son pseudo
   socket.on("player:join-room", ({ roomId, playerName }) => {
     if (!roomId || !playerName) return;
     const roomKey = roomId.toUpperCase();
@@ -153,8 +153,7 @@ io.on("connection", (socket) => {
       socket.emit("player:joined", { isGameOpen: gl.isGameOpen, name: player.name });
       console.log(`✅ Joueur enregistré : ${player.name} dans la Room ${roomKey}`);
       
-      // === LA LIGNE MANQUANTE ICI ===
-      // On force le rafraîchissement des compteurs du Lobby dès qu'un joueur valide son pseudo !
+      // Envoi de la mise à jour immédiate du compteur au Lobby
       sendLobbyUpdate(roomKey);
     }
   });
@@ -255,6 +254,9 @@ io.on("connection", (socket) => {
       console.log(`🚫 Déconnexion : ${socket.id} de la Room ${currentSocketRoom}`);
       gl.removePlayer(socket.id);
 
+      // On recalcule les compteurs après le départ du joueur
+      sendLobbyUpdate(currentSocketRoom);
+
       // Si la room devient complètement vide, on nettoie la mémoire RAM
       const totalRemaining = Object.keys(gl.players).length;
       if (totalRemaining === 0 && !gl.isGameOpen) {
@@ -264,6 +266,22 @@ io.on("connection", (socket) => {
     }
   });
 });
+
+// --- FONCTION DE MISE À JOUR DES COMPTEURS DU LOBBY ---
+function sendLobbyUpdate(roomId) {
+  const room = activeRooms[roomId.toUpperCase()];
+  if (!room || !room.gameLoop) return;
+
+  const gl = room.gameLoop;
+  // Filtrer uniquement les sockets qui possèdent un pseudo validé
+  const playersArr = Object.values(gl.players).filter(p => p.hasJoined);
+
+  io.to(roomId.toUpperCase()).emit("lobby:update", {
+    isGameOpen: gl.isGameOpen,
+    waitingCount: gl.isGameOpen ? 0 : playersArr.length,
+    activeCount: gl.isGameOpen ? playersArr.length : 0
+  });
+}
 
 // Lancement du serveur
 server.listen(PORT, "0.0.0.0", () => {
