@@ -130,7 +130,7 @@ io.on("connection", (socket) => {
     console.log(`📺 Écran principal connecté au salon : ${roomKey}`);
   });
 
-  // 3. JOUER/MANETTE : Rejoindre la room avec son pseudo
+// 3. JOUER/MANETTE : Rejoindre la room avec son pseudo
   socket.on("player:join-room", ({ roomId, playerName }) => {
     if (!roomId || !playerName) return;
     const roomKey = roomId.toUpperCase();
@@ -152,6 +152,10 @@ io.on("connection", (socket) => {
       
       socket.emit("player:joined", { isGameOpen: gl.isGameOpen, name: player.name });
       console.log(`✅ Joueur enregistré : ${player.name} dans la Room ${roomKey}`);
+      
+      // === LA LIGNE MANQUANTE ICI ===
+      // On force le rafraîchissement des compteurs du Lobby dès qu'un joueur valide son pseudo !
+      sendLobbyUpdate(roomKey);
     }
   });
 
