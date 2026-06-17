@@ -11,7 +11,7 @@ const app = express();
 const server = http.createServer(app);
 
 // --- CONFIGURATION CORS GLOBALE ---
-const ALLOWED_ORIGIN = "https://ColocalizedMultiplayerGame.github.io";
+const ALLOWED_ORIGIN = "https://colocalizedmultiplayergame.github.io";
 
 const io = new Server(server, {
   cors: {
